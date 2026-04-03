@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, getDoc, collection, addDoc, query, orderBy, onSnapshot, setDoc, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, collection, addDoc, query, orderBy, onSnapshot, setDoc, updateDoc, Timestamp } from 'firebase/firestore';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { db, auth } from '../config/firebase';
 import { Basis, Bit, QuantumKeyService } from '../services/quantumService';
@@ -43,6 +43,7 @@ const Chat: React.FC = () => {
   const [quantumStep, setQuantumStep] = useState(0);
   const [matchingCount, setMatchingCount] = useState(0);
   const [finalKeyHex, setFinalKeyHex] = useState('');
+  const aliceDataRef = useRef<{ bits: Bit[]; bases: Basis[] } | null>(null);
   const abortedRedirectedRef = useRef(false);
 
   // Generate a consistent conversation ID based on two user IDs
@@ -118,7 +119,7 @@ const Chat: React.FC = () => {
     }
   }, [conversationId, currentUser]);
 
-  // Watch the handshake session so chat can close immediately if either user aborts.
+  // Watch the handshake session for abort and real-time BB84 key synchronization.
   useEffect(() => {
     if (!currentUser || !userId) return;
 
@@ -126,12 +127,17 @@ const Chat: React.FC = () => {
     const sessionId = getConversationId(currentUser.uid, userId);
     const sessionRef = doc(db, 'sessions', sessionId);
 
-    const unsubscribe = onSnapshot(sessionRef, (snapshot) => {
+    const unsubscribe = onSnapshot(sessionRef, async (snapshot) => {
       if (!snapshot.exists()) return;
 
       const data = snapshot.data() as {
         status?: string;
         abortedAt?: string | null;
+        aliceId?: string | null;
+        quantumPayload?: number[] | null;
+        bobBases?: Basis[] | null;
+        matchingIndexes?: number[] | null;
+        handshakeComplete?: boolean;
       };
 
       const wasAborted = data.status === 'initializing' && !!data.abortedAt;
@@ -139,6 +145,60 @@ const Chat: React.FC = () => {
         abortedRedirectedRef.current = true;
         setChatError('Quantum session aborted by peer. Redirecting to users...');
         navigate('/users');
+        return;
+      }
+
+      // Bob auto-generates random measurement bases when Alice starts rekey.
+      if (
+        data.status === 'rekeying'
+        && Array.isArray(data.quantumPayload)
+        && data.aliceId !== currentUser.uid
+        && !Array.isArray(data.bobBases)
+      ) {
+        const bobBases: Basis[] = data.quantumPayload.map(() => (Math.random() > 0.5 ? 'X' : '+'));
+        await updateDoc(sessionRef, { bobBases });
+      }
+
+      // Alice performs sifting after Bob publishes bases.
+      if (
+        data.status === 'rekeying'
+        && Array.isArray(data.bobBases)
+        && data.aliceId === currentUser.uid
+        && !Array.isArray(data.matchingIndexes)
+        && aliceDataRef.current
+      ) {
+        const matchingIndexes = aliceDataRef.current.bases
+          .map((basis, index) => (basis === data.bobBases?.[index] ? index : null))
+          .filter((index): index is number => index !== null);
+
+        await updateDoc(sessionRef, {
+          matchingIndexes,
+          handshakeComplete: true,
+          status: 'secure',
+        });
+      }
+
+      // Both sides derive the exact same key from session data.
+      if (data.handshakeComplete && Array.isArray(data.matchingIndexes) && Array.isArray(data.quantumPayload)) {
+        const siftedBits: Bit[] = data.matchingIndexes
+          .map((idx) => data.quantumPayload?.[idx])
+          .filter((bit): bit is number => bit === 0 || bit === 1)
+          .map((bit) => (bit === 1 ? 1 : 0));
+
+        setMatchingCount(siftedBits.length);
+        setFinalKeyHex(QuantumKeyService.formatToHex(siftedBits));
+        setQuantumStep(5);
+        setQuantumStatus('Secure key synchronized in real time.');
+        setQuantumLoading(false);
+        setQuantumError(null);
+      } else if (data.status === 'rekeying') {
+        if (data.aliceId === currentUser.uid) {
+          setQuantumStep(2);
+          setQuantumStatus('Alice: waiting for Bob measurement bases...');
+        } else {
+          setQuantumStep(3);
+          setQuantumStatus('Bob: measuring photons and publishing bases...');
+        }
       }
     });
 
@@ -180,15 +240,17 @@ const Chat: React.FC = () => {
   const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
   const runQuantumHandshake = async () => {
+    if (!currentUser || !userId) return;
+
     setQuantumLoading(true);
     setQuantumError(null);
     setFinalKeyHex('');
     setMatchingCount(0);
     setQuantumStep(1);
-    setQuantumStatus('Alice: Preparing polarized photons...');
+    setQuantumStatus('Preparing BB84 transmission...');
     await wait(500);
     setQuantumStep(2);
-    setQuantumStatus('Alice: Transmitting photons to Bob...');
+    setQuantumStatus('Publishing photons to shared session...');
 
     const result = await QuantumKeyService.generateAndTransmit(256, eavesdropperActive);
 
@@ -202,28 +264,31 @@ const Chat: React.FC = () => {
       return;
     }
 
-    setQuantumStep(3);
-    setQuantumStatus('Bob: Photons received. Selecting random bases...');
-    await wait(500);
-    setQuantumStatus('Bob: Measuring photons...');
-    await wait(700);
-    setQuantumStep(4);
-    setQuantumStatus('Alice + Bob: Comparing bases over public channel...');
-    await wait(600);
+    aliceDataRef.current = {
+      bits: result.aliceBits,
+      bases: result.aliceBases,
+    };
 
-    const bobBases: Basis[] = result.photonsForBob.map(() => (Math.random() > 0.5 ? 'X' : '+'));
-    const photonsAsBits: Bit[] = result.photonsForBob.map((bit) => (bit === 1 ? 1 : 0));
-    const finalKeyBits: Bit[] = QuantumKeyService.deriveFinalKey(
-      photonsAsBits,
-      bobBases,
-      result.aliceBases,
+    const sessionId = getConversationId(currentUser.uid, userId);
+    const sessionRef = doc(db, 'sessions', sessionId);
+
+    await setDoc(
+      sessionRef,
+      {
+        handshakeComplete: false,
+        quantumPayload: result.photonsForBob,
+        bobBases: null,
+        matchingIndexes: null,
+        aliceId: currentUser.uid,
+        status: 'rekeying',
+        abortedAt: null,
+        abortedBy: null,
+      },
+      { merge: true },
     );
 
-    setMatchingCount(finalKeyBits.length);
-    setFinalKeyHex(QuantumKeyService.formatToHex(finalKeyBits));
-    setQuantumStep(5);
-    setQuantumStatus('Final key generated. Secure channel ready.');
-    setQuantumLoading(false);
+    setQuantumStep(3);
+    setQuantumStatus('Waiting for peer to complete BB84 measurement...');
   };
 
   const abortQuantumHandshake = async () => {
