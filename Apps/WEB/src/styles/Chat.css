@@ -74,6 +74,166 @@
   font-size: 0.85rem;
 }
 
+.quantum-panel {
+  min-width: 280px;
+  max-width: 340px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(0, 255, 204, 0.25);
+  border-radius: 10px;
+  padding: 0.75rem;
+}
+
+.quantum-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.4rem;
+}
+
+.quantum-panel-title {
+  margin: 0;
+  color: #00ffcc;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.quantum-toggle {
+  color: #b8b8b8;
+  font-size: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.quantum-progress {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.2rem;
+  margin: 0.35rem 0 0.45rem;
+  padding-top: 0.1rem;
+}
+
+.quantum-progress-line,
+.quantum-progress-line-active {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 8px;
+  height: 2px;
+  border-radius: 999px;
+}
+
+.quantum-progress-line {
+  background: rgba(120, 120, 120, 0.4);
+}
+
+.quantum-progress-line-active {
+  right: auto;
+  background: #00ffcc;
+  transition: width 250ms ease;
+}
+
+.quantum-step {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.quantum-step-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #5e5e5e;
+  background: #141414;
+}
+
+.quantum-step-label {
+  font-size: 0.62rem;
+  color: #808080;
+  letter-spacing: 0.03em;
+  text-align: center;
+}
+
+.quantum-step.completed .quantum-step-dot,
+.quantum-step.active .quantum-step-dot {
+  border-color: #00ffcc;
+  background: rgba(0, 255, 204, 0.15);
+}
+
+.quantum-step.active .quantum-step-dot {
+  box-shadow: 0 0 0 3px rgba(0, 255, 204, 0.1);
+}
+
+.quantum-step.completed .quantum-step-label,
+.quantum-step.active .quantum-step-label {
+  color: #c9fff4;
+}
+
+.quantum-status {
+  margin: 0;
+  color: #d9d9d9;
+  font-size: 0.75rem;
+  min-height: 1.2rem;
+}
+
+.quantum-error {
+  margin: 0.4rem 0 0;
+  color: #ff7070;
+  font-size: 0.75rem;
+}
+
+.quantum-meta {
+  margin: 0.5rem 0 0;
+  color: #9c9c9c;
+  font-size: 0.72rem;
+}
+
+.quantum-key {
+  margin: 0.2rem 0 0.5rem;
+  color: #00ffcc;
+  font-size: 0.68rem;
+  line-height: 1.2;
+  word-break: break-all;
+}
+
+.quantum-btn {
+  width: 100%;
+  border: 1px solid rgba(0, 255, 204, 0.4);
+  background: rgba(0, 255, 204, 0.08);
+  color: #00ffcc;
+  border-radius: 8px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 0.45rem 0.55rem;
+  cursor: pointer;
+}
+
+.quantum-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.quantum-actions-row {
+  display: flex;
+  gap: 0.45rem;
+}
+
+.quantum-actions-row .quantum-btn {
+  flex: 1;
+}
+
+.quantum-btn-danger {
+  border-color: rgba(255, 107, 107, 0.6);
+  background: rgba(255, 107, 107, 0.12);
+  color: #ff8080;
+}
+
 .chat-messages {
   flex: 1;
   overflow-y: auto;
@@ -229,6 +389,7 @@
 
   .chat-header {
     padding: 1rem;
+    flex-wrap: wrap;
   }
 
   .chat-header h1 {
@@ -244,6 +405,16 @@
 
   .chat-input-container {
     gap: 0.25rem;
+  }
+
+  .quantum-panel {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+  }
+
+  .quantum-step-label {
+    font-size: 0.56rem;
   }
 
   .chat-input {

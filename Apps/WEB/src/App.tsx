@@ -7,6 +7,7 @@ import Login from './pages/Login';
 import SignUp from './pages/SignUp';
 import Chat from './pages/Chat';
 import Users from './pages/Users';
+import Quantum from './pages/Quantum';
 
 const App: React.FC = () => {
   return (
@@ -20,6 +21,8 @@ const App: React.FC = () => {
           <Route path="/chat" element={<Chat />} />
           <Route path="/chat/:userId" element={<Chat />} />
           <Route path="/users" element={<Users />} />
+          <Route path="/quantum" element={<Quantum />} />
+          <Route path="/quantum/:userId" element={<Quantum />} />
         </Routes>
       </div>
     </Router>

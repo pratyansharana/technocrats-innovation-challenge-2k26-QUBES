@@ -1,15 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, getDoc, collection, addDoc, query, orderBy, onSnapshot, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, collection, addDoc, query, orderBy, onSnapshot, setDoc, Timestamp } from 'firebase/firestore';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { db, auth } from '../config/firebase';
+import { Basis, Bit, QuantumKeyService } from '../services/quantumService';
+import { EncryptionService } from '../services/encryptionService';
 import '../styles/Chat.css';
+
+const QUANTUM_STEPS = ['Alice', 'Channel', 'Bob', 'Sifting', 'Key Ready'];
 
 interface Message {
   id: string;
   text: string;
   senderId: string;
   senderName?: string;
+  encrypted?: boolean;
   timestamp: Timestamp | Date;
 }
 
@@ -31,6 +36,14 @@ const Chat: React.FC = () => {
   const [chatError, setChatError] = useState<string | null>(null);
   const [chatUser, setChatUser] = useState<ChatUser | null>(null);
   const [fetchingUser, setFetchingUser] = useState(!!userId);
+  const [quantumLoading, setQuantumLoading] = useState(false);
+  const [eavesdropperActive, setEavesdropperActive] = useState(false);
+  const [quantumError, setQuantumError] = useState<string | null>(null);
+  const [quantumStatus, setQuantumStatus] = useState('Idle');
+  const [quantumStep, setQuantumStep] = useState(0);
+  const [matchingCount, setMatchingCount] = useState(0);
+  const [finalKeyHex, setFinalKeyHex] = useState('');
+  const abortedRedirectedRef = useRef(false);
 
   // Generate a consistent conversation ID based on two user IDs
   const getConversationId = (user1Id: string, user2Id: string) => {
@@ -105,16 +118,49 @@ const Chat: React.FC = () => {
     }
   }, [conversationId, currentUser]);
 
+  // Watch the handshake session so chat can close immediately if either user aborts.
+  useEffect(() => {
+    if (!currentUser || !userId) return;
+
+    abortedRedirectedRef.current = false;
+    const sessionId = getConversationId(currentUser.uid, userId);
+    const sessionRef = doc(db, 'sessions', sessionId);
+
+    const unsubscribe = onSnapshot(sessionRef, (snapshot) => {
+      if (!snapshot.exists()) return;
+
+      const data = snapshot.data() as {
+        status?: string;
+        abortedAt?: string | null;
+      };
+
+      const wasAborted = data.status === 'initializing' && !!data.abortedAt;
+      if (wasAborted && !abortedRedirectedRef.current) {
+        abortedRedirectedRef.current = true;
+        setChatError('Quantum session aborted by peer. Redirecting to users...');
+        navigate('/users');
+      }
+    });
+
+    return () => unsubscribe();
+  }, [currentUser, userId, navigate]);
+
   const handleSendMessage = async () => {
     if (!input.trim() || !conversationId || !currentUser) return;
 
     setLoading(true);
     try {
       const messagesRef = collection(db, 'conversations', conversationId, 'messages');
+      const shouldEncrypt = finalKeyHex.length > 0;
+      const payloadText = shouldEncrypt
+        ? EncryptionService.encrypt(input, finalKeyHex)
+        : input;
+
       await addDoc(messagesRef, {
-        text: input,
+        text: payloadText,
         senderId: currentUser.uid,
         senderName: currentUser.displayName || 'Anonymous',
+        encrypted: shouldEncrypt,
         timestamp: Timestamp.now(),
       });
       setInput('');
@@ -129,6 +175,90 @@ const Chat: React.FC = () => {
 
   const handleBackClick = () => {
     navigate('/users');
+  };
+
+  const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const runQuantumHandshake = async () => {
+    setQuantumLoading(true);
+    setQuantumError(null);
+    setFinalKeyHex('');
+    setMatchingCount(0);
+    setQuantumStep(1);
+    setQuantumStatus('Alice: Preparing polarized photons...');
+    await wait(500);
+    setQuantumStep(2);
+    setQuantumStatus('Alice: Transmitting photons to Bob...');
+
+    const result = await QuantumKeyService.generateAndTransmit(256, eavesdropperActive);
+
+    if (!result.success) {
+      setQuantumError(result.error || 'Quantum channel failed.');
+      setQuantumStatus('Quantum channel failed');
+      setFinalKeyHex('');
+      setMatchingCount(0);
+      setQuantumStep(0);
+      setQuantumLoading(false);
+      return;
+    }
+
+    setQuantumStep(3);
+    setQuantumStatus('Bob: Photons received. Selecting random bases...');
+    await wait(500);
+    setQuantumStatus('Bob: Measuring photons...');
+    await wait(700);
+    setQuantumStep(4);
+    setQuantumStatus('Alice + Bob: Comparing bases over public channel...');
+    await wait(600);
+
+    const bobBases: Basis[] = result.photonsForBob.map(() => (Math.random() > 0.5 ? 'X' : '+'));
+    const photonsAsBits: Bit[] = result.photonsForBob.map((bit) => (bit === 1 ? 1 : 0));
+    const finalKeyBits: Bit[] = QuantumKeyService.deriveFinalKey(
+      photonsAsBits,
+      bobBases,
+      result.aliceBases,
+    );
+
+    setMatchingCount(finalKeyBits.length);
+    setFinalKeyHex(QuantumKeyService.formatToHex(finalKeyBits));
+    setQuantumStep(5);
+    setQuantumStatus('Final key generated. Secure channel ready.');
+    setQuantumLoading(false);
+  };
+
+  const abortQuantumHandshake = async () => {
+    if (!currentUser || !userId || quantumLoading) return;
+
+    const sessionId = getConversationId(currentUser.uid, userId);
+    const sessionRef = doc(db, 'sessions', sessionId);
+
+    await setDoc(
+      sessionRef,
+      {
+        handshakeComplete: false,
+        quantumPayload: null,
+        bobBases: null,
+        matchingIndexes: null,
+        aliceId: null,
+        status: 'initializing',
+        abortedAt: new Date().toISOString(),
+        abortedBy: currentUser.uid,
+      },
+      { merge: true },
+    );
+  };
+
+  const getMessageText = (msg: Message): string => {
+    if (!msg.encrypted) {
+      return msg.text;
+    }
+
+    if (!finalKeyHex) {
+      return '[Encrypted] Run BB84 handshake to decrypt this message.';
+    }
+
+    const decrypted = EncryptionService.decrypt(msg.text, finalKeyHex);
+    return decrypted || '[Encrypted] Unable to decrypt with current key.';
   };
 
   if (!authResolved) {
@@ -199,6 +329,66 @@ const Chat: React.FC = () => {
             <p className="chat-user-email">{chatUser?.email || ''}</p>
           </div>
         </div>
+        <div className="quantum-panel">
+          <div className="quantum-panel-header">
+            <p className="quantum-panel-title">BB84 Handshake</p>
+            <label className="quantum-toggle">
+              <input
+                type="checkbox"
+                checked={eavesdropperActive}
+                onChange={(e) => setEavesdropperActive(e.target.checked)}
+                disabled={quantumLoading}
+              />
+              Eve
+            </label>
+          </div>
+          <div className="quantum-progress">
+            <div className="quantum-progress-line" />
+            <div
+              className="quantum-progress-line-active"
+              style={{ width: `${(Math.max(quantumStep - 1, 0) / (QUANTUM_STEPS.length - 1)) * 100}%` }}
+            />
+            {QUANTUM_STEPS.map((label, index) => {
+              const stepNumber = index + 1;
+              const isCompleted = quantumStep > stepNumber;
+              const isActive = quantumStep === stepNumber;
+
+              return (
+                <div
+                  key={label}
+                  className={`quantum-step ${isCompleted ? 'completed' : ''} ${isActive ? 'active' : ''}`.trim()}
+                >
+                  <span className="quantum-step-dot" />
+                  <span className="quantum-step-label">{label}</span>
+                </div>
+              );
+            })}
+          </div>
+          <p className="quantum-status">{quantumStatus}</p>
+          {quantumError && <p className="quantum-error">{quantumError}</p>}
+          {finalKeyHex && (
+            <>
+              <p className="quantum-meta">Sifted bits: {matchingCount}</p>
+              <p className="quantum-key">{finalKeyHex}</p>
+            </>
+          )}
+          <div className="quantum-actions-row">
+            <button
+              className="quantum-btn"
+              onClick={runQuantumHandshake}
+              disabled={quantumLoading}
+            >
+              {quantumLoading ? 'Running...' : 'Run Key Exchange'}
+            </button>
+            <button
+              className="quantum-btn quantum-btn-danger"
+              onClick={abortQuantumHandshake}
+              disabled={quantumLoading}
+            >
+              Abort
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="chat-messages">
@@ -217,7 +407,7 @@ const Chat: React.FC = () => {
               key={msg.id}
               className={`chat-message ${msg.senderId === currentUser?.uid ? 'user' : 'bot'}`}
             >
-              <div className="message-content">{msg.text}</div>
+              <div className="message-content">{getMessageText(msg)}</div>
               <div className="message-time">
                 {msg.timestamp instanceof Timestamp
                   ? msg.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
