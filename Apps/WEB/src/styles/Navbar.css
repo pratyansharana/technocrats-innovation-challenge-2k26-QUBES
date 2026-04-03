@@ -3,13 +3,19 @@
   padding: 1rem 2rem;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
   border-bottom: 1px solid rgba(128, 128, 128, 0.2);
 }
 
-.nav-items {
+.nav-left {
   display: flex;
   gap: 3rem;
+  align-items: center;
+}
+
+.nav-right {
+  display: flex;
+  gap: 1.5rem;
   align-items: center;
 }
 
@@ -32,6 +38,21 @@
 .nav-link.active {
   color: #ddd;
   border-bottom-color: #808080;
+}
+
+.nav-login {
+  background: linear-gradient(135deg, #808080 0%, #606060 100%);
+  color: #fff;
+  padding: 0.5rem 1.5rem;
+  border-radius: 6px;
+  border-bottom: none;
+  transition: all 0.3s ease;
+}
+
+.nav-login:hover {
+  background: linear-gradient(135deg, #909090 0%, #707070 100%);
+  box-shadow: 0 0 12px rgba(128, 128, 128, 0.3);
+  transform: translateY(-2px);
 }
 
 .nav-logout-btn {

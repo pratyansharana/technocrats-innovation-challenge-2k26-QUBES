@@ -27,20 +27,28 @@ const Navbar: React.FC = () => {
 
   return (
     <nav className="navbar">
-      <div className="nav-items">
+      <div className="nav-left">
         <Link to="/" className="nav-link">
           HOME
         </Link>
-        {!user ? (
+        {user && (
           <>
-            <Link to="/login" className="nav-link">
-              LOGIN
+            <Link to="/users" className="nav-link">
+              USERS
             </Link>
-            <Link to="/signup" className="nav-link">
-              SIGN UP
+            <Link to="/chat" className="nav-link">
+              CHAT
             </Link>
           </>
-        ) : (
+        )}
+      </div>
+      <div className="nav-right">
+        {!user && (
+          <Link to="/login" className="nav-link nav-login">
+            LOGIN
+          </Link>
+        )}
+        {user && (
           <button className="nav-logout-btn" onClick={handleLogout}>
             LOGOUT
           </button>

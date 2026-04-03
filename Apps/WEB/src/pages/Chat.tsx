@@ -1,17 +1,58 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { doc, getDoc } from 'firebase/firestore';
+import { db, auth } from '../config/firebase';
 import '../styles/Chat.css';
 
 interface Message {
   id: string;
   text: string;
   sender: 'user' | 'bot';
+  senderId?: string;
   timestamp: Date;
 }
 
+interface ChatUser {
+  id: string;
+  displayName?: string;
+  email?: string;
+  photoURL?: string;
+}
+
 const Chat: React.FC = () => {
+  const { userId } = useParams<{ userId?: string }>();
+  const navigate = useNavigate();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [chatUser, setChatUser] = useState<ChatUser | null>(null);
+  const [fetchingUser, setFetchingUser] = useState(!!userId);
+
+  useEffect(() => {
+    if (userId) {
+      const fetchChatUser = async () => {
+        try {
+          setFetchingUser(true);
+          const userRef = doc(db, 'users', userId);
+          const userSnap = await getDoc(userRef);
+          if (userSnap.exists()) {
+            setChatUser({
+              id: userSnap.id,
+              ...userSnap.data(),
+            });
+          } else {
+            setChatUser(null);
+          }
+        } catch (error) {
+          console.error('Error fetching user:', error);
+          setChatUser(null);
+        } finally {
+          setFetchingUser(false);
+        }
+      };
+      fetchChatUser();
+    }
+  }, [userId]);
 
   const handleSendMessage = async () => {
     if (!input.trim()) return;
@@ -20,6 +61,7 @@ const Chat: React.FC = () => {
       id: Date.now().toString(),
       text: input,
       sender: 'user',
+      senderId: auth.currentUser?.uid,
       timestamp: new Date(),
     };
 
@@ -31,8 +73,9 @@ const Chat: React.FC = () => {
     setTimeout(() => {
       const botMessage: Message = {
         id: (Date.now() + 1).toString(),
-        text: 'This is a bot response. Chat functionality coming soon!',
+        text: 'Thanks for the message! This is a demo response. Real messaging coming soon!',
         sender: 'bot',
+        senderId: userId,
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, botMessage]);
@@ -40,10 +83,48 @@ const Chat: React.FC = () => {
     }, 500);
   };
 
+  const handleBackClick = () => {
+    navigate('/users');
+  };
+
+  if (fetchingUser) {
+    return (
+      <div className="chat-container">
+        <div className="chat-header">
+          <p style={{ color: '#888' }}>Loading user...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (userId && !chatUser) {
+    return (
+      <div className="chat-container">
+        <div className="chat-header">
+          <p style={{ color: '#888' }}>User not found</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="chat-container">
       <div className="chat-header">
-        <h1>Chat</h1>
+        <button className="back-button" onClick={handleBackClick}>←</button>
+        <div className="chat-user-info">
+          {chatUser?.photoURL && (
+            <img src={chatUser.photoURL} alt={chatUser.displayName} className="chat-user-avatar" />
+          )}
+          {!chatUser?.photoURL && (
+            <div className="chat-user-avatar-placeholder">
+              {(chatUser?.displayName || chatUser?.email || 'User')[0]?.toUpperCase()}
+            </div>
+          )}
+          <div>
+            <h1>{chatUser?.displayName || 'Anonymous'}</h1>
+            <p className="chat-user-email">{chatUser?.email || ''}</p>
+          </div>
+        </div>
       </div>
 
       <div className="chat-messages">
@@ -61,28 +142,24 @@ const Chat: React.FC = () => {
             </div>
           ))
         )}
-        {loading && (
-          <div className="chat-message bot">
-            <div className="message-content typing">
-              <span></span>
-              <span></span>
-              <span></span>
-            </div>
-          </div>
-        )}
       </div>
 
-      <div className="chat-input-area">
+      <div className="chat-input-container">
         <input
           type="text"
+          className="chat-input"
+          placeholder="Type a message..."
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-          placeholder="Type your message..."
           disabled={loading}
         />
-        <button onClick={handleSendMessage} disabled={loading}>
-          Send
+        <button
+          className="chat-send-btn"
+          onClick={handleSendMessage}
+          disabled={loading || !input.trim()}
+        >
+          {loading ? '...' : 'Send'}
         </button>
       </div>
     </div>

@@ -39,7 +39,7 @@ const Login: React.FC = () => {
     try {
       const result = await signInWithPopup(auth, googleProvider);
       await saveUserData(result.user);
-      navigate('/chat');
+      navigate('/users');
     } catch (err: any) {
       setError(err.message || 'Failed to login with Google');
       console.error('Login error:', err);

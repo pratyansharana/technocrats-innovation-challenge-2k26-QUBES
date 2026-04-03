@@ -6,6 +6,7 @@ import Home from './pages/Home';
 import Login from './pages/Login';
 import SignUp from './pages/SignUp';
 import Chat from './pages/Chat';
+import Users from './pages/Users';
 
 const App: React.FC = () => {
   return (
@@ -17,6 +18,8 @@ const App: React.FC = () => {
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<SignUp />} />
           <Route path="/chat" element={<Chat />} />
+          <Route path="/chat/:userId" element={<Chat />} />
+          <Route path="/users" element={<Users />} />
         </Routes>
       </div>
     </Router>
