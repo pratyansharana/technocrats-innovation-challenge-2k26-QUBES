@@ -4,7 +4,7 @@
   align-items: center;
   width: 100%;
   height: 100%;
-  background: #1a1a1a;
+  background: #000000;
   position: relative;
   overflow: hidden;
 }
@@ -16,7 +16,7 @@
   right: -20%;
   width: 600px;
   height: 600px;
-  background: radial-gradient(circle, #808080 0%, #80808080 30%, transparent 70%);
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 30%, transparent 70%);
   filter: blur(80px);
   z-index: 0;
 }
@@ -28,33 +28,33 @@
   left: -10%;
   width: 500px;
   height: 500px;
-  background: radial-gradient(circle, #808080 0%, #80808080 30%, transparent 70%);
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 30%, transparent 70%);
   filter: blur(80px);
   z-index: 0;
 }
 
 .auth-card {
-  background: rgba(30, 30, 30, 0.7);
-  padding: 1.5rem;
-  border-radius: 24px;
-  box-shadow: 0 8px 32px rgba(128, 128, 128, 0.15);
-  border: 1px solid rgba(128, 128, 128, 0.3);
+  background: transparent;
+  padding: 2rem;
+  border-radius: 0;
+  box-shadow: none;
+  border: none;
   width: 100%;
-  max-width: 450px;
+  max-width: 500px;
   position: relative;
   z-index: 1;
-  backdrop-filter: blur(10px);
+  backdrop-filter: none;
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 2rem;
 }
 
 .model-container {
   width: 100%;
   height: 350px;
-  border-radius: 16px;
+  border-radius: 0;
   overflow: hidden;
-  border: 1px solid rgba(128, 128, 128, 0.2);
+  border: none;
 }
 
 .model-container iframe {
@@ -63,7 +63,7 @@
 }
 
 .auth-card h1 {
-  color: #fff;
+  color: #ffffff;
   text-align: center;
   margin-bottom: 0.5rem;
   font-size: 2rem;
@@ -71,7 +71,7 @@
 }
 
 .auth-card > p {
-  color: #aaa;
+  color: rgba(255, 255, 255, 0.7);
   text-align: center;
   margin-bottom: 2rem;
   font-size: 0.95rem;
@@ -83,7 +83,7 @@
 
 .form-group label {
   display: block;
-  color: #888;
+  color: rgba(255, 255, 255, 0.7);
   margin-bottom: 0.5rem;
   font-weight: 400;
   font-size: 0.9rem;
@@ -92,8 +92,8 @@
 .form-group input {
   width: 100%;
   padding: 0.75rem 1rem;
-  border: 1px solid rgba(128, 128, 128, 0.3);
-  background: rgba(50, 50, 50, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(30, 30, 30, 0.8);
   border-radius: 8px;
   color: #fff;
   font-size: 0.95rem;
@@ -102,20 +102,20 @@
 
 .form-group input:focus {
   outline: none;
-  border-color: #808080;
-  background: rgba(60, 60, 60, 0.8);
-  box-shadow: 0 0 12px rgba(128, 128, 128, 0.25);
+  border-color: #ffffff;
+  background: rgba(40, 40, 40, 0.9);
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.2);
 }
 
 .form-group input::placeholder {
-  color: #666;
+  color: rgba(255, 255, 255, 0.3);
 }
 
 .submit-btn {
   width: 100%;
   padding: 0.75rem;
-  background: linear-gradient(135deg, #808080 0%, #606060 100%);
-  color: #fff;
+  background: #ffffff;
+  color: #000000;
   border: none;
   border-radius: 8px;
   font-size: 1rem;
@@ -130,8 +130,8 @@
 }
 
 .submit-btn:hover {
-  background: linear-gradient(135deg, #909090 0%, #707070 100%);
-  box-shadow: 0 0 20px rgba(128, 128, 128, 0.4);
+  background: #e0e0e0;
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
   transform: translateY(-2px);
 }
 
@@ -139,7 +139,7 @@
   display: flex;
   align-items: center;
   margin: 2rem 0;
-  color: #666;
+  color: rgba(255, 255, 255, 0.5);
   font-size: 0.85rem;
 }
 
@@ -148,7 +148,7 @@
   content: '';
   flex: 1;
   height: 1px;
-  background: rgba(128, 128, 128, 0.2);
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .auth-divider span {
@@ -158,10 +158,10 @@
 .social-btn {
   width: 100%;
   padding: 0.75rem;
-  background: rgba(128, 128, 128, 0.05);
-  border: 1px solid rgba(128, 128, 128, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 8px;
-  color: #aaa;
+  color: #ffffff;
   font-size: 0.95rem;
   cursor: pointer;
   display: flex;
@@ -169,6 +169,11 @@
   justify-content: space-between;
   transition: all 0.3s ease;
   font-weight: 500;
+}
+
+.social-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
 }
 
 .social-btn:disabled {
@@ -187,18 +192,18 @@
 .auth-footer {
   text-align: center;
   margin-top: 2rem;
-  color: #888;
+  color: rgba(255, 255, 255, 0.6);
   font-size: 0.9rem;
 }
 
 .auth-footer a {
-  color: #999;
+  color: rgba(255, 255, 255, 0.8);
   text-decoration: none;
   cursor: pointer;
   transition: color 0.3s ease;
 }
 
 .auth-footer a:hover {
-  color: #bbb;
+  color: #ffffff;
   text-decoration: underline;
 }
