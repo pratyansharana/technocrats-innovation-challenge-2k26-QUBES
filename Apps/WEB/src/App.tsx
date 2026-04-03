@@ -1,16 +1,23 @@
 import React from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import './App.css';
+import Navbar from './components/Navbar';
+import Home from './pages/Home';
+import Login from './pages/Login';
+import SignUp from './pages/SignUp';
 
 const App: React.FC = () => {
   return (
-    <div className="app-container">
-      <iframe
-        src="https://my.spline.design/thebluemarble-ceUMe5X6TRu9xIijySTii64T/"
-        frameBorder="0"
-        className="spline-iframe"
-        title="3D Blue Marble Model"
-      />
-    </div>
+    <Router>
+      <div className="app-container">
+        <Navbar />
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<SignUp />} />
+        </Routes>
+      </div>
+    </Router>
   );
 };
 

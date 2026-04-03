@@ -1,0 +1,34 @@
+.navbar {
+  background-color: #000;
+  padding: 1rem 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid rgba(0, 255, 0, 0.2);
+}
+
+.nav-items {
+  display: flex;
+  gap: 3rem;
+}
+
+.nav-link {
+  color: #aaa;
+  text-decoration: none;
+  font-size: 1rem;
+  font-weight: 500;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid transparent;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.nav-link:hover {
+  color: #00ff00;
+  border-bottom-color: #00ff00;
+}
+
+.nav-link.active {
+  color: #00ff00;
+  border-bottom-color: #00ff00;
+}
