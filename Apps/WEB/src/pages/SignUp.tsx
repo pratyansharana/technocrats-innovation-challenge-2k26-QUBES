@@ -1,83 +1,51 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { signInWithPopup } from 'firebase/auth';
+import { auth, googleProvider } from '../config/firebase';
 import '../styles/Auth.css';
 
 const SignUp: React.FC = () => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (password !== confirmPassword) {
-      alert('Passwords do not match');
-      return;
+  const handleGoogleSignUp = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const result = await signInWithPopup(auth, googleProvider);
+      console.log('User signed up:', result.user);
+      navigate('/chat');
+    } catch (err: any) {
+      setError(err.message || 'Failed to sign up with Google');
+      console.error('Sign up error:', err);
+    } finally {
+      setLoading(false);
     }
-    console.log('Sign Up:', { email, password });
   };
 
   return (
     <div className="auth-container">
       <div className="auth-card">
-        <h1>Create account</h1>
-        <p>Join us to get started</p>
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label htmlFor="email">Email</label>
-            <input
-              type="email"
-              id="email"
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-          </div>
-          <div className="form-group">
-            <label htmlFor="password">Password</label>
-            <input
-              type="password"
-              id="password"
-              placeholder="Create a password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-          </div>
-          <div className="form-group">
-            <label htmlFor="confirmPassword">Confirm Password</label>
-            <input
-              type="password"
-              id="confirmPassword"
-              placeholder="Confirm your password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              required
-            />
-          </div>
-          <button type="submit" className="submit-btn">
-            Sign Up <span className="arrow-icon">→</span>
-          </button>
-        </form>
-
-        <div className="auth-divider">
-          <span>OR</span>
+        <div className="model-container">
+          <iframe
+            title="Quantum Computer"
+            frameBorder="0"
+            allowFullScreen
+            allow="autoplay; fullscreen; xr-spatial-tracking"
+            src="https://sketchfab.com/models/82006aac41744663a161ab844264ac2a/embed?autospin=1&autostart=1&preload=1"
+          />
         </div>
-
-        <button className="social-btn">
+        {error && <p style={{ color: '#ff6b6b', textAlign: 'center', fontSize: '0.9rem' }}>{error}</p>}
+        <button
+          className="social-btn"
+          onClick={handleGoogleSignUp}
+          disabled={loading}
+        >
           <span className="social-icon">🔵</span>
-          Continue with Google
+          {loading ? 'Signing up...' : 'Continue with Google'}
           <span className="arrow-icon">→</span>
         </button>
-        <button className="social-btn">
-          <span className="social-icon">🍎</span>
-          Continue with Apple
-          <span className="arrow-icon">→</span>
-        </button>
-
-        <div className="auth-footer">
-          Already have an account? <Link to="/login">Login</Link>
-        </div>
       </div>
     </div>
   );
