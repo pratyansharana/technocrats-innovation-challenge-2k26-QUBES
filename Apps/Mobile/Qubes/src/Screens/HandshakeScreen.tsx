@@ -153,11 +153,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#1A1A1A',
     borderRadius: 12,
   },
-backIcon: {
-    fontSize: 32,
+  backIcon: {
+    fontSize: 22,
     color: '#9CA3AF',
     fontWeight: '300',
-    marginTop: -4,
   },
   headerTitle: {
     fontSize: 16,
