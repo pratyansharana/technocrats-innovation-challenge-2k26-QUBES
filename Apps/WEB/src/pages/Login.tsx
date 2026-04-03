@@ -1,67 +1,51 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { signInWithPopup } from 'firebase/auth';
+import { auth, googleProvider } from '../config/firebase';
 import '../styles/Auth.css';
 
 const Login: React.FC = () => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    console.log('Login:', { email, password });
+  const handleGoogleLogin = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const result = await signInWithPopup(auth, googleProvider);
+      console.log('User logged in:', result.user);
+      navigate('/chat');
+    } catch (err: any) {
+      setError(err.message || 'Failed to login with Google');
+      console.error('Login error:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className="auth-container">
       <div className="auth-card">
-        <h1>Welcome back</h1>
-        <p>Sign in to your account</p>
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label htmlFor="email">Email</label>
-            <input
-              type="email"
-              id="email"
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-          </div>
-          <div className="form-group">
-            <label htmlFor="password">Password</label>
-            <input
-              type="password"
-              id="password"
-              placeholder="Enter your password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-          </div>
-          <button type="submit" className="submit-btn">
-            Continue <span className="arrow-icon">→</span>
-          </button>
-        </form>
-
-        <div className="auth-divider">
-          <span>OR</span>
+        <div className="model-container">
+          <iframe
+            title="Quantum Computer"
+            frameBorder="0"
+            allowFullScreen
+            allow="autoplay; fullscreen; xr-spatial-tracking"
+            src="https://sketchfab.com/models/82006aac41744663a161ab844264ac2a/embed?autospin=1&autostart=1&preload=1"
+          />
         </div>
-
-        <button className="social-btn">
+        {error && <p style={{ color: '#ff6b6b', textAlign: 'center', fontSize: '0.9rem' }}>{error}</p>}
+        <button
+          className="social-btn"
+          onClick={handleGoogleLogin}
+          disabled={loading}
+        >
           <span className="social-icon">🔵</span>
-          Continue with Google
+          {loading ? 'Signing in...' : 'Continue with Google'}
           <span className="arrow-icon">→</span>
         </button>
-        <button className="social-btn">
-          <span className="social-icon">🍎</span>
-          Continue with Apple
-          <span className="arrow-icon">→</span>
-        </button>
-
-        <div className="auth-footer">
-          Don't have an account? <Link to="/signup">Sign up</Link>
-        </div>
       </div>
     </div>
   );
