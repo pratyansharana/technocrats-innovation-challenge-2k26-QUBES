@@ -1,35 +1,26 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
-  View, 
-  StyleSheet, 
-  Text, 
-  ActivityIndicator, 
-  StatusBar, 
-  KeyboardAvoidingView, 
-  Platform,
-  TouchableOpacity,
-  Modal,
-  ScrollView,
-  Alert,
-  TextInput,
-  FlatList
+  View, StyleSheet, Text, ActivityIndicator, StatusBar, KeyboardAvoidingView, 
+  Platform, TouchableOpacity, Modal, ScrollView, Alert, TextInput, FlatList, Image 
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInUp, FadeIn, withRepeat, withSequence, withTiming, useSharedValue, useAnimatedStyle } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
+import * as FileSystem from 'expo-file-system/legacy';
 
-// Firestore Imports
+// Firestore & Storage Imports
 import { doc, collection, onSnapshot, addDoc, updateDoc, serverTimestamp, getDocs, query, deleteDoc } from 'firebase/firestore';
-import { db, auth } from '../Firebase/FirebaseConfig'; 
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'; 
+import { db, auth, storage } from '../Firebase/FirebaseConfig'; 
 import { CryptoService } from '../Services/CryptoService';
 import { QuantumKeyService } from '../Services/QuantumService';
-
 
 export default function ChatScreen({ route, navigation }: any) {
   const { sessionId, targetUser } = route.params;
   
-  // Custom Chat State
   const [messages, setMessages] = useState<any[]>([]);
   const [inputText, setInputText] = useState('');
   
@@ -41,14 +32,16 @@ export default function ChatScreen({ route, navigation }: any) {
   const [showDetails, setShowDetails] = useState(false);
   const [isRekeyingOverlay, setIsRekeyingOverlay] = useState(false);
 
+  // Image State
+  const [imageSending, setImageSending] = useState(false);
+  const [decryptedImageMap, setDecryptedImageMap] = useState<Record<string, string>>({});
+
   const currentUser = auth.currentUser;
   const localCacheRef = useRef<Record<string, any>>({});
   const sessionStartTimeRef = useRef(new Date().getTime());
   const aliceDataRef = useRef<{ bits: any[], bases: any[] } | null>(null);
   
   const isExitingRef = useRef(false);
-  
-  // 🔥 Extracts exact dimensions of the notch and bottom navigation bar
   const insets = useSafeAreaInsets(); 
 
   const pulseOpacity = useSharedValue(0.5);
@@ -89,39 +82,23 @@ export default function ChatScreen({ route, navigation }: any) {
       if (!snapshot.exists()) return;
       const data = snapshot.data();
 
-// 🔥 Match Web Logic: If the room was aborted by the peer, burn local cache and kick out
       const wasAborted = data.status === 'initializing' && !!data.abortedAt;
-      
       if (wasAborted && !isExitingRef.current) {
         isExitingRef.current = true;
-        
-        // 1. Instantly clear Bob's UI
         setMessages([]);
         localCacheRef.current = {};
-        
-        // 🔥 ADDED AWAIT: Force the phone to finish deleting before moving on
         await AsyncStorage.removeItem(`chat_${sessionId}`);
-        
-        // 2. Alert and Boot
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         Alert.alert(
           "LINK SEVERED",
           "Your peer aborted the sequence. All keys and messages have been permanently destroyed.",
-          [
-            { 
-              text: "Return to Directory", 
-              // Wait for them to tap this before navigating away!
-              onPress: () => navigation.replace('Home') 
-            }
-          ],
-          { cancelable: false } // Force them to click the button
+          [{ text: "Return to Directory", onPress: () => navigation.replace('Home') }],
+          { cancelable: false }
         );
         return;
       }
 
-      if (!data.handshakeComplete && data.status === 'rekeying') {
-        setIsRekeyingOverlay(true);
-      }
+      if (!data.handshakeComplete && data.status === 'rekeying') setIsRekeyingOverlay(true);
 
       if (data.status === 'rekeying' && data.quantumPayload && data.aliceId !== currentUser?.uid && !data.bobBases) {
         sessionStartTimeRef.current = Date.now(); 
@@ -134,11 +111,7 @@ export default function ChatScreen({ route, navigation }: any) {
           .map((b: string, i: number) => b === data.bobBases[i] ? i : null)
           .filter((v: number | null) => v !== null);
 
-        await updateDoc(sessionRef, {
-          matchingIndexes,
-          handshakeComplete: true,
-          status: 'secure'
-        });
+        await updateDoc(sessionRef, { matchingIndexes, handshakeComplete: true, status: 'secure' });
       }
 
       if (data.handshakeComplete && data.matchingIndexes) {
@@ -160,7 +133,7 @@ export default function ChatScreen({ route, navigation }: any) {
     return () => unsubscribe();
   }, [sessionId, currentUser, isRekeyingOverlay, isReady]);
 
-// ==========================================
+  // ==========================================
   // 3. LISTEN FOR MESSAGES (FIRESTORE)
   // ==========================================
   useEffect(() => {
@@ -169,8 +142,6 @@ export default function ChatScreen({ route, navigation }: any) {
     const messagesRef = collection(db, 'sessions', sessionId, 'messages');
     
     const unsubscribe = onSnapshot(messagesRef, (snapshot) => {
-      // 🔥 THE FIX: If we are aborting/exiting, kill this listener instantly 
-      // so it stops re-saving to AsyncStorage!
       if (isExitingRef.current) return; 
 
       const serverData: Record<string, any> = {};
@@ -179,7 +150,6 @@ export default function ChatScreen({ route, navigation }: any) {
       });
       
       let cacheUpdated = false;
-
       const serverKeys = Object.keys(serverData);
       const cacheKeys = Object.keys(localCacheRef.current);
       const allUniqueKeys = Array.from(new Set([...serverKeys, ...cacheKeys]));
@@ -195,30 +165,35 @@ export default function ChatScreen({ route, navigation }: any) {
 
         let decryptedText = "[ DECRYPTION FAILED ]";
         let isLegacy = true;
+
         try {
-          decryptedText = CryptoService.decryptMessage(msg.text, secureKey);
-          isLegacy = decryptedText.includes("Error") || !decryptedText;
+          if (msg.messageType === 'image') {
+            decryptedText = "[ ENCRYPTED IMAGE ]"; 
+            isLegacy = false; 
+          } else {
+            decryptedText = CryptoService.decryptMessage(msg.text, secureKey);
+            isLegacy = decryptedText.includes("Error") || !decryptedText;
+          }
         } catch (err) {}
 
         let validDate = new Date();
         if (msg.createdAt) {
-          if (msg.createdAt.toDate) {
-            validDate = msg.createdAt.toDate();
-          } else if (typeof msg.createdAt === 'number' || typeof msg.createdAt === 'string') {
-            validDate = new Date(msg.createdAt);
-          }
+          if (msg.createdAt.toDate) validDate = msg.createdAt.toDate();
+          else if (typeof msg.createdAt === 'number' || typeof msg.createdAt === 'string') validDate = new Date(msg.createdAt);
         }
 
         const processedMsg = {
           _id: key,
           text: isLegacy ? "[ ENCRYPTED ARCHIVE: Sealed by previous session key ]" : decryptedText,
+          messageType: msg.messageType || 'text',
+          storageUrl: msg.storageUrl,
           createdAt: validDate,
           user: { _id: msg.user._id, name: msg.user.name },
           system: false,
           isLegacy: isLegacy 
         };
 
-        if (!isLegacy) {
+        if (!isLegacy && msg.messageType !== 'image') {
           localCacheRef.current[key] = processedMsg;
           cacheUpdated = true;
         }
@@ -226,25 +201,63 @@ export default function ChatScreen({ route, navigation }: any) {
         return processedMsg;
       }).filter(Boolean);
 
-      if (cacheUpdated) {
-        AsyncStorage.setItem(`chat_${sessionId}`, JSON.stringify(localCacheRef.current));
-      }
+      if (cacheUpdated) AsyncStorage.setItem(`chat_${sessionId}`, JSON.stringify(localCacheRef.current));
 
       chatMessages.push({
         _id: `system-key-${secureKey.substring(0, 8)}`,
         text: `[ SYS.MSG ] NEW QUANTUM KEY ESTABLISHED\nMessages below are secured with Ephemeral AES-256.\nKEY_ID: ${secureKey.substring(0, 6)}...`,
+        messageType: 'text',
         createdAt: new Date(sessionStartTimeRef.current),
         system: true,
         user: { _id: 'system', name: 'System' }
       });
 
-      // FlatList inverted=true requires newest messages at index 0 (descending order)
       chatMessages.sort((a, b) => (b.createdAt as any) - (a.createdAt as any));
       setMessages(chatMessages);
     });
 
     return () => unsubscribe();
   }, [secureKey, cacheLoaded, sessionId]);
+
+  // ==========================================
+  // 3.5. ASYNC DECRYPT IMAGES FROM STORAGE
+  // ==========================================
+  useEffect(() => {
+    const loadStoredImages = async () => {
+      if (!secureKey) return;
+
+      const imageMessages = messages.filter(msg => 
+        msg.messageType === 'image' && 
+        msg.storageUrl && 
+        !decryptedImageMap[msg._id] &&
+        !msg.isLegacy
+      );
+
+      if (imageMessages.length === 0) return;
+
+      const nextMap: Record<string, string> = {};
+
+      await Promise.all(imageMessages.map(async (msg) => {
+        try {
+          const response = await fetch(msg.storageUrl);
+          const encryptedPayload = await response.text();
+          const decrypted = CryptoService.decryptMessage(encryptedPayload, secureKey);
+
+          if (decrypted && !decrypted.includes("Error")) {
+             nextMap[msg._id] = decrypted;
+          }
+        } catch (error) {
+          console.error('Failed to load encrypted image payload:', error);
+        }
+      }));
+
+      if (Object.keys(nextMap).length > 0) {
+        setDecryptedImageMap(prev => ({ ...prev, ...nextMap }));
+      }
+    };
+
+    loadStoredImages();
+  }, [messages, secureKey]);
 
   // ==========================================
   // 4. INSTANT IN-CHAT REKEY
@@ -257,23 +270,16 @@ export default function ChatScreen({ route, navigation }: any) {
       [
         { text: "Cancel", style: "cancel" },
         { 
-          text: "Rekey Now", 
-          style: "destructive", 
+          text: "Rekey Now", style: "destructive", 
           onPress: async () => {
             setIsRekeyingOverlay(true);
             const result = await QuantumKeyService.generateAndTransmit(256, false);
-            
             if (result.success) {
               aliceDataRef.current = { bits: result.aliceBits, bases: result.aliceBases };
               sessionStartTimeRef.current = Date.now(); 
-              
               await updateDoc(doc(db, 'sessions', sessionId), {
-                handshakeComplete: false,
-                quantumPayload: result.photonsForBob,
-                bobBases: null,
-                matchingIndexes: null,
-                aliceId: currentUser?.uid,
-                status: 'rekeying'
+                handshakeComplete: false, quantumPayload: result.photonsForBob, bobBases: null,
+                matchingIndexes: null, aliceId: currentUser?.uid, status: 'rekeying'
               });
             } else {
               setIsRekeyingOverlay(false);
@@ -286,27 +292,7 @@ export default function ChatScreen({ route, navigation }: any) {
   };
 
   // ==========================================
-  // 5. BURN KEY ON EXIT
-  // ==========================================
-  useEffect(() => {
-    const unsubscribe = navigation.addListener('beforeRemove', () => {
-      isExitingRef.current = true; 
-      updateDoc(doc(db, 'sessions', sessionId), {
-        handshakeComplete: false,
-        quantumPayload: null,
-        bobBases: null,
-        matchingIndexes: null,
-        aliceId: null, 
-        status: 'initializing'
-      });
-    });
-    return unsubscribe;
-  }, [navigation, sessionId]);
-
-
-
-  // ==========================================
-  // 5.5 ABORT SEQUENCE (SCORCHED EARTH - MOBILE)
+  // 5. ABORT SEQUENCE (SCORCHED EARTH)
   // ==========================================
   const handleAbortSequence = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
@@ -316,21 +302,16 @@ export default function ChatScreen({ route, navigation }: any) {
       [
         { text: "Cancel", style: "cancel" },
         { 
-          text: "BURN EVERYTHING", 
-          style: "destructive", 
+          text: "BURN EVERYTHING", style: "destructive", 
           onPress: async () => {
             if (!currentUser || isExitingRef.current) return;
             isExitingRef.current = true;
             
             try {
-              // 1. Instantly clear UI
               setMessages([]);
               localCacheRef.current = {};
-              
-              // 🔥 2. AWAIT the device wipe
               await AsyncStorage.removeItem(`chat_${sessionId}`);
               
-              // 🔥 3. AWAIT the cloud wipe
               const messagesRef = collection(db, 'sessions', sessionId, 'messages');
               const snapshot = await getDocs(query(messagesRef));
               if (!snapshot.empty) {
@@ -338,25 +319,16 @@ export default function ChatScreen({ route, navigation }: any) {
                 await Promise.all(deletePromises); 
               }
               
-              // 🔥 4. AWAIT the signal to Bob
               await updateDoc(doc(db, 'sessions', sessionId), {
-                handshakeComplete: false,
-                quantumPayload: null,
-                bobBases: null,
-                matchingIndexes: null,
-                aliceId: null, 
-                status: 'initializing',
-                abortedAt: new Date().toISOString(), 
-                abortedBy: currentUser.uid
+                handshakeComplete: false, quantumPayload: null, bobBases: null, matchingIndexes: null,
+                aliceId: null, status: 'initializing', abortedAt: new Date().toISOString(), abortedBy: currentUser.uid
               });
 
-              // 5. ONLY navigate after all awaits are 100% finished
               navigation.replace('Home');
-
             } catch (error) {
               console.error('Abort cleanup failed:', error);
               Alert.alert("Error", "Check your connection. Deletion may have partially failed.");
-              isExitingRef.current = false; // Unlock if it failed
+              isExitingRef.current = false;
             }
           }
         }
@@ -369,10 +341,8 @@ export default function ChatScreen({ route, navigation }: any) {
   // ==========================================
   const handleSend = async () => {
     if (!inputText.trim() || !secureKey || !currentUser) return;
-    
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     
-    // Capture text and clear input immediately for snappy UI
     const textToSend = inputText.trim();
     setInputText(""); 
     
@@ -381,9 +351,89 @@ export default function ChatScreen({ route, navigation }: any) {
     
     await addDoc(messagesRef, {
       text: encryptedText,
+      messageType: 'text',
       createdAt: serverTimestamp(),
       user: { _id: currentUser.uid, name: currentUser.displayName || "User" },
     });
+  };
+
+  // ==========================================
+  // 7. SECURE IMAGE SENDER (BULLETPROOF UPLOAD)
+  // ==========================================
+
+  const handleSendImage = async () => {
+    if (!secureKey || !currentUser) return;
+
+    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permissionResult.granted) {
+      Alert.alert("Permission Required", "Allow camera roll access to send secure photos.");
+      return;
+    }
+
+    const pickerResult = await ImagePicker.launchImageLibraryAsync({
+      // 🔥 FIX 1: Updated to the new Expo array syntax
+      mediaTypes: ['images'], 
+      quality: 1, 
+    });
+
+    if (pickerResult.canceled) return;
+    
+    setImageSending(true);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+    try {
+      // 1. Compress Image
+      const compressedImage = await ImageManipulator.manipulateAsync(
+        pickerResult.assets[0].uri,
+        [{ resize: { width: 1024 } }], 
+        { compress: 0.8, base64: true }
+      );
+
+      const mimeType = 'image/jpeg';
+      const dataUrl = `data:${mimeType};base64,${compressedImage.base64}`;
+
+      // 2. Encrypt locally
+      const encryptedImageText = CryptoService.encryptMessage(dataUrl, secureKey);
+
+      // 3. Write the giant string to a temp file, then fetch it as a Blob
+      const tempUri = FileSystem.cacheDirectory + `temp_enc_${Date.now()}.txt`;
+      
+      // 🔥 FIX 2: Removed the { encoding } object entirely. It defaults to UTF8 safely.
+      await FileSystem.writeAsStringAsync(tempUri, encryptedImageText);
+      
+      const response = await fetch(tempUri);
+      const blob = await response.blob();
+
+      // 4. Upload Blob to Firebase Storage
+      const storagePath = `encrypted-images/${sessionId}/${Date.now()}_${Math.random().toString(36).slice(2, 10)}.enc`;
+      const storageRef = ref(storage, storagePath);
+
+      await uploadBytes(storageRef, blob, { contentType: 'text/plain' });
+      
+      // Cleanup the temp file to save phone space
+      await FileSystem.deleteAsync(tempUri, { idempotent: true });
+
+      const storageUrl = await getDownloadURL(storageRef);
+
+      // 5. Save metadata to Firestore
+      const messagesRef = collection(db, 'sessions', sessionId, 'messages');
+      await addDoc(messagesRef, {
+        text: '[encrypted-image-storage]',
+        messageType: 'image',
+        mimeType: mimeType,
+        encrypted: true,
+        storagePath,
+        storageUrl,
+        createdAt: serverTimestamp(),
+        user: { _id: currentUser.uid, name: currentUser.displayName || "User" },
+      });
+
+    } catch (error) {
+      console.error("Image send error:", error);
+      Alert.alert("Error", "Failed to encrypt and send image.");
+    } finally {
+      setImageSending(false);
+    }
   };
 
   // ==========================================
@@ -394,7 +444,6 @@ export default function ChatScreen({ route, navigation }: any) {
     const isSystem = item.system;
     const isLegacy = item.isLegacy;
 
-    // Render System Message
     if (isSystem) {
       return (
         <View style={styles.systemMsgContainer}>
@@ -405,13 +454,11 @@ export default function ChatScreen({ route, navigation }: any) {
       );
     }
 
-    // Format Time safely
     let timeString = '';
     if (item.createdAt instanceof Date) {
       timeString = item.createdAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
 
-    // Render Normal Chat Bubble
     return (
       <View style={[styles.messageWrapper, isMe ? styles.messageWrapperRight : styles.messageWrapperLeft]}>
         <View style={[
@@ -419,13 +466,32 @@ export default function ChatScreen({ route, navigation }: any) {
           isMe ? styles.bubbleRight : styles.bubbleLeft,
           isLegacy && (isMe ? styles.bubbleRightLegacy : styles.bubbleLeftLegacy)
         ]}>
-          <Text style={[
-            styles.messageText,
-            isMe ? styles.messageTextRight : styles.messageTextLeft,
-            isLegacy && styles.messageTextLegacy
-          ]}>
-            {item.text}
-          </Text>
+          
+          {/* IMAGE RENDERER */}
+          {item.messageType === 'image' ? (
+            decryptedImageMap[item._id] ? (
+              <Image 
+                source={{ uri: decryptedImageMap[item._id] }} 
+                style={{ width: 220, height: 220, borderRadius: 8, marginVertical: 5 }} 
+              />
+            ) : (
+              <View style={styles.imageLoadingBox}>
+                <ActivityIndicator color={isMe ? "#1A1A1A" : "#00FFCC"} />
+                <Text style={[styles.timeText, { marginTop: 8, color: isMe ? "#1A1A1A" : "#00FFCC" }]}>
+                  {isLegacy ? 'ARCHIVED' : 'DECRYPTING...'}
+                </Text>
+              </View>
+            )
+          ) : (
+            <Text style={[
+              styles.messageText,
+              isMe ? styles.messageTextRight : styles.messageTextLeft,
+              isLegacy && styles.messageTextLegacy
+            ]}>
+              {item.text}
+            </Text>
+          )}
+
           <Text style={[styles.timeText, isMe ? styles.timeTextRight : styles.timeTextLeft]}>
             {timeString}
           </Text>
@@ -450,14 +516,13 @@ export default function ChatScreen({ route, navigation }: any) {
     <View style={styles.mainWrapper}>
       <StatusBar barStyle="light-content" backgroundColor="#0A0A0A" />
 
-      {/* 1. The absolute root handles Keyboard Resizing completely automatically */}
       <KeyboardAvoidingView 
         style={{ flex: 1 }} 
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={Platform.OS === "ios" ? 100 : 0}
       >
         
-        {/* 2. Top Header - Manually padded so it clears the iPhone Notch/Android Camera Hole */}
+        {/* HEADER */}
         <Animated.View entering={FadeInUp.duration(400)} style={{ paddingTop: insets.top }}>
           <View style={styles.headerContainer}>
             <TouchableOpacity style={styles.headerLeft} onPress={() => {
@@ -475,18 +540,16 @@ export default function ChatScreen({ route, navigation }: any) {
               <TouchableOpacity style={styles.rekeyBtn} onPress={handleRekey} activeOpacity={0.7}>
                  <Text style={styles.rekeyBtnText}>[ REKEY ]</Text>
               </TouchableOpacity>
-              
               <TouchableOpacity style={styles.abortBtn} onPress={handleAbortSequence} activeOpacity={0.7}>
                  <Text style={styles.abortBtnText}>[ ERASE ]</Text>
               </TouchableOpacity>
             </View>
-            
           </View>
         </Animated.View>
 
-        {/* 3. Custom Chat List View */}
+        {/* CHAT LIST */}
         <FlatList
-          inverted // Tells FlatList to start from bottom
+          inverted
           data={messages}
           keyExtractor={(item) => item._id}
           renderItem={renderMessageItem}
@@ -495,14 +558,28 @@ export default function ChatScreen({ route, navigation }: any) {
           keyboardShouldPersistTaps="handled"
         />
 
-        {/* 4. Custom Input Area - Manually padded at bottom to clear the home indicator */}
+        {/* INPUT AREA */}
         <View style={[styles.inputContainer, { paddingBottom: Math.max(insets.bottom, 15) }]}>
+          
+          <TouchableOpacity 
+            onPress={handleSendImage} 
+            disabled={imageSending || !inputText.trim() === false} 
+            style={styles.cameraBtn}
+          >
+            {imageSending ? (
+               <ActivityIndicator size="small" color="#00FFCC" />
+            ) : (
+               <Text style={[styles.cameraIcon, inputText.length > 0 && { opacity: 0.3 }]}>📷</Text>
+            )}
+          </TouchableOpacity>
+
           <TextInput
             style={styles.textInput}
             value={inputText}
             onChangeText={setInputText}
-            placeholder="Secure transmission..."
+            placeholder={imageSending ? "Encrypting image..." : "Secure transmission..."}
             placeholderTextColor="#888888"
+            editable={!imageSending}
             multiline
             maxLength={500}
           />
@@ -574,7 +651,6 @@ const styles = StyleSheet.create({
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0A0A0A' },
   loadingText: { marginTop: 15, color: '#00FFCC', fontSize: 11, fontWeight: '900', letterSpacing: 1.5, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' },
   
-  // Header
   headerContainer: { flexDirection: 'row', backgroundColor: '#0A0A0A', paddingVertical: 14, paddingHorizontal: 20, alignItems: 'center', justifyContent: 'space-between', elevation: 10, shadowColor: '#00FFCC', shadowOpacity: 0.1, shadowRadius: 10, borderBottomWidth: 1, borderBottomColor: '#1A1A1A', zIndex: 10 },
   headerLeft: { flexDirection: 'row', alignItems: 'center' },
   pulseDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#00FFCC', marginRight: 12, shadowColor: '#00FFCC', shadowOpacity: 0.8, shadowRadius: 6 },
@@ -586,18 +662,15 @@ const styles = StyleSheet.create({
   headerButtons: { flexDirection: 'row', gap: 8 },
   abortBtn: { paddingHorizontal: 10, paddingVertical: 6, backgroundColor: '#1A1A1A', borderRadius: 8, borderWidth: 1, borderColor: '#FF3366' },
   abortBtnText: { color: '#FF3366', fontSize: 10, fontWeight: '900', letterSpacing: 1, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' },
-  // Custom Chat List Styles
-  flatListContent: { paddingHorizontal: 15, paddingVertical: 20, gap: 10 },
   
+  flatListContent: { paddingHorizontal: 15, paddingVertical: 20, gap: 10 },
   messageWrapper: { width: '100%', marginBottom: 8 },
   messageWrapperRight: { alignItems: 'flex-end' },
   messageWrapperLeft: { alignItems: 'flex-start' },
   
   bubble: { maxWidth: '80%', paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1 },
-  
   bubbleRight: { backgroundColor: '#00FFCC', borderRadius: 16, borderBottomRightRadius: 4, borderColor: '#00FFCC', shadowColor: '#00FFCC', shadowOpacity: 0.2, shadowRadius: 5 },
   bubbleLeft: { backgroundColor: '#1A1A1A', borderRadius: 16, borderBottomLeftRadius: 4, borderColor: '#2A2A2A' },
-  
   bubbleRightLegacy: { backgroundColor: '#1A1A1A', borderColor: '#2A2A2A', shadowOpacity: 0 },
   bubbleLeftLegacy: { backgroundColor: '#111111', borderColor: '#2A2A2A', opacity: 0.8 },
 
@@ -605,25 +678,26 @@ const styles = StyleSheet.create({
   messageTextRight: { color: '#0A0A0A', fontWeight: '700' },
   messageTextLeft: { color: '#FFFFFF', fontWeight: '500' },
   messageTextLegacy: { color: '#888888', fontStyle: 'italic' },
+  
+  imageLoadingBox: { width: 220, height: 220, borderRadius: 8, marginVertical: 5, backgroundColor: 'rgba(0,0,0,0.1)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(0,0,0,0.2)' },
 
   timeText: { fontSize: 10, marginTop: 4, fontWeight: '700', alignSelf: 'flex-end' },
   timeTextRight: { color: 'rgba(0,0,0,0.5)' },
   timeTextLeft: { color: '#888888' },
 
-  // System Messages
   systemMsgContainer: { alignItems: 'center', marginVertical: 20, width: '100%' },
   systemMsgBox: { backgroundColor: '#1A1A1A', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 12, borderWidth: 1, borderColor: '#2A2A2A' },
   systemMsgText: { color: '#888888', fontSize: 10, fontWeight: 'bold', textAlign: 'center', lineHeight: 16, letterSpacing: 1, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' },
 
-  // Custom Input Area
   inputContainer: { flexDirection: 'row', backgroundColor: '#0A0A0A', borderTopWidth: 1, borderTopColor: '#1A1A1A', paddingHorizontal: 15, paddingTop: 10, alignItems: 'flex-end' },
+  cameraBtn: { marginBottom: 12, marginRight: 12, justifyContent: 'center', alignItems: 'center' },
+  cameraIcon: { fontSize: 22 },
   textInput: { flex: 1, backgroundColor: '#1A1A1A', color: '#FFFFFF', minHeight: 45, maxHeight: 120, borderRadius: 20, borderWidth: 1, borderColor: '#2A2A2A', paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12, fontSize: 15, marginRight: 10 },
   sendBtn: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: '#1A1A1A', borderWidth: 1, borderColor: '#00FFCC', justifyContent: 'center', alignItems: 'center', shadowColor: '#00FFCC', shadowOpacity: 0.3, shadowRadius: 5 },
   sendBtnDisabled: { borderColor: '#2A2A2A', shadowOpacity: 0 },
   sendIcon: { color: '#00FFCC', fontSize: 18, fontWeight: 'bold', marginLeft: 2 },
   sendIconDisabled: { color: '#555555' },
   
-  // Overlays & Modals
   rekeyOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(10, 10, 10, 0.95)', zIndex: 1000, justifyContent: 'center', alignItems: 'center' },
   rekeyOverlayBox: { backgroundColor: '#1A1A1A', padding: 35, borderRadius: 20, alignItems: 'center', borderWidth: 1, borderColor: '#00FFCC', shadowColor: '#00FFCC', shadowOpacity: 0.2, shadowRadius: 30 },
   rekeyOverlayTitle: { color: '#00FFCC', fontSize: 16, fontWeight: '900', letterSpacing: 2, marginTop: 25, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' },
