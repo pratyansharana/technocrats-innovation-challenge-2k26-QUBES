@@ -7,6 +7,9 @@ from typing import List
 # Initialize the FastAPI application
 app = FastAPI()
 
+# Global eavesdropping state
+EAVESDROPPING_ENABLED = False
+
 # Enable CORS so your React Native app isn't blocked by network security policies
 app.add_middleware(
     CORSMiddleware,
@@ -34,13 +37,15 @@ def simulate_quantum_channel(payload: TransmissionRequest):
         
     received_states = []
     
+    # Use global eavesdropping state (can override with payload)
+    eve_active = payload.eavesdropperActive or EAVESDROPPING_ENABLED
 
     for i in range(len(payload.bits)):
         current_bit = payload.bits[i]
         current_basis = payload.bases[i]
         
 
-        if payload.eavesdropperActive:
+        if eve_active:
 
             eve_basis = random.choice(['+', 'X'])
             
@@ -51,10 +56,32 @@ def simulate_quantum_channel(payload: TransmissionRequest):
         
     return {
         "status": "success", 
-        "received_states": received_states
+        "received_states": received_states,
+        "eavesdropping_active": eve_active
     }
 
 
 @app.get("/")
 def health_check():
     return {"message": "Basis84 Quantum Simulator is online."}
+
+
+# 3. Get current eavesdropping state
+@app.get("/api/eavesdropping")
+def get_eavesdropping_state():
+    return {
+        "eavesdropping_enabled": EAVESDROPPING_ENABLED,
+        "status": "ENABLED ⚠️" if EAVESDROPPING_ENABLED else "DISABLED ✓"
+    }
+
+
+# 4. Toggle eavesdropping on/off
+@app.post("/api/eavesdropping/toggle")
+def toggle_eavesdropping():
+    global EAVESDROPPING_ENABLED
+    EAVESDROPPING_ENABLED = not EAVESDROPPING_ENABLED
+    return {
+        "eavesdropping_enabled": EAVESDROPPING_ENABLED,
+        "status": "ENABLED ⚠️" if EAVESDROPPING_ENABLED else "DISABLED ✓",
+        "message": f"Eavesdropping detection is now {('ENABLED' if EAVESDROPPING_ENABLED else 'DISABLED')}"
+    }
