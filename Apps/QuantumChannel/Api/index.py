@@ -66,15 +66,15 @@ def simulate_quantum_channel(payload: TransmissionRequest):
         "eavesdropping_active": eve_active
     }
 
-# Health check route
-@app.get("/")
+# Health check route (JSON)
+@app.get("/health")
 def health_check():
     return {"message": "Basis84 Quantum Simulator is online."}
 
 
-# 3. HTML Dashboard to toggle eavesdropping
-@app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard():
+# Root route - HTML Dashboard to toggle eavesdropping
+@app.get("/", response_class=HTMLResponse)
+async def root_dashboard():
     return """
     <!DOCTYPE html>
     <html lang="en">
