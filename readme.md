@@ -661,7 +661,7 @@ MIT License - Feel free to use and modify
 
 <div align="center">
 
-**Built with ❤️ as a Personal Project**
+**Built with ❤️ by Pratyansha Rana(Mobile App) and Anadi Gupta(Website)**
 
 [⬆ Back to Top](#-qubes---encrypted-communication-platform)
 
