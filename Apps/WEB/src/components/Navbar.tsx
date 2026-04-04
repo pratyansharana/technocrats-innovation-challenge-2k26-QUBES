@@ -39,6 +39,9 @@ const Navbar: React.FC = () => {
             <Link to="/chat" className="nav-link">
               CHAT
             </Link>
+            <Link to="/quantum" className="nav-link">
+              QUANTUM
+            </Link>
           </>
         )}
       </div>

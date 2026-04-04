@@ -45,7 +45,7 @@ const Users: React.FC = () => {
   }, []);
 
   const handleUserClick = (userId: string) => {
-    navigate(`/chat/${userId}`);
+    navigate(`/quantum/${userId}`);
   };
 
   return (
