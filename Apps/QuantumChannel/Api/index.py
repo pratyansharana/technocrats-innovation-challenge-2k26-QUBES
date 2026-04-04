@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import random
 from typing import List
+from mangum import Asgi
 
 # Initialize the FastAPI application
 app = FastAPI()
@@ -87,7 +88,5 @@ def toggle_eavesdropping():
     }
 
 
-# Vercel handler (required for serverless)
-from mangum import Asgi
-
+# Vercel serverless handler
 handler = Asgi(app)
