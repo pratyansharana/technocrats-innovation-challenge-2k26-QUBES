@@ -14,6 +14,12 @@ A revolutionary **real-time encrypted chat application** powered by **BB84 Quant
 
 </div>
 
+## Live Deployment
+
+- Production Domain: https://quantum-qubes.vercel.app/
+- Hosting Platform: Vercel
+- Framework: React (CRA) with Serverless Python API routes
+
 ---
 
 ## 🌟 Features
